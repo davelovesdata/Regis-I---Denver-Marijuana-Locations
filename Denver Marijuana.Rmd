@@ -1,6 +1,8 @@
 ---
 title: "A Mapping of Denver Marijuana Businesses and Arrests"
 output:
+  word_document: default
+  pdf_document: default
   html_document:
     df_print: paged
 ---
@@ -201,7 +203,7 @@ ggplot(denver_mj_crime,aes(x=OFFENSE_CATEGORY_ID, fill=OFFENSE_CATEGORY_ID))+
 This section requires a Google developers API Key: (https://developers.google.com/maps/documentation/geocoding/usage-and-billing). For security purposes this section is masked.
 ```{r echo=FALSE}
 #API Key is required from google for the next section.
-apikey = "AIzaSyDrMbhq1f_Be9omWdC4QlPKczFlazedMlo"
+#apikey = YOUR KEY HERE
 ```
 
 ```{r}
