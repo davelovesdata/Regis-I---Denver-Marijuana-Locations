@@ -1,0 +1,240 @@
+---
+title: "A Mapping of Denver Marijuana Businesses and Arrests"
+output:
+  word_document: default
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+Author: David Martinez</br>
+
+Institution: Regis University</br>
+
+Class: MSDS692 Data Science Practicum #1</br>
+
+Professor: Dr. Michael Busch</br>
+
+
+### Introduction</br>
+On November 7th, 2000, voters in Colorado amended the state Constitution to allow the sale and use of Marijuana upon written consent by medical professional (Amendment 20, Colorado Constitution, 2000). Twelve years later, Colorado approved the sale and use of marijuana recreational use for adults over the age of twenty-one (Amendment 64, COlorado Constitution, 2012). Denver, the state capital and the largest population center in Colorado, has published data records since 2010 for medical marijuana and 2013 for recreational marijuana, including sales, government revenue, licensing information, and crime statistics.</br>
+
+This project will focus on identifying the types and locations of Marijuana businesses as well as the types and locations of arrests made.</br>
+
+The following datasets are used in this project: </br>
+
+https://www.denvergov.org/opendata/dataset/city-and-county-of-denver-marijuana-active-business-licenses</br>
+
+https://www.denvergov.org/opendata/dataset/city-and-county-of-denver-crime-marijuana</br>
+
+Other references:</br>
+https://ballotpedia.org/Marijuana_on_the_ballot</br>
+
+https://developers.google.com/maps/documentation/geocoding/usage-and-billing</br>
+
+## citations: 
+ggmap - D. Kahle and H. Wickham. ggmap: Spatial Visualization with ggplot2. The R Journal, 5(1), 144-161. URL http://journal.r-project.org/archive/2013-1/kahle-wickham.pdf</br>
+
+stringr - Hadley Wickham (2017). stringr: Simple, Consistent Wrappers for Common String Operations. R package version 1.2.0.
+  https://CRAN.R-project.org/package=stringr</br>
+
+ggplot2 - H. Wickham. ggplot2: Elegant Graphics for Data Analysis. Springer-Verlag New York, 2009.</br>
+
+dplyr - Hadley Wickham, Romain Francois, Lionel Henry and Kirill Müller (2017). dplyr: A Grammar of Data Manipulation. R package
+  version 0.7.4. https://CRAN.R-project.org/package=dplyr</br>
+
+RgoogleMaps - Markus Loecher and Karl Ropkins (2015). RgoogleMaps and loa: Unleashing R Graphics Power on Map Tiles. Journal of
+  Statistical Software 63(4), 1-18. URL http://www.jstatsoft.org/v63/i04/.</br>
+
+## Dependencies
+```{r message=FALSE}
+#dependencies
+library(stringr)  #string operations
+library(ggplot2)  #graphics
+library(ggmap)    #used for geocoding
+library(RgoogleMaps)    #used for mapping lat/long to static map
+library(dplyr)    #dataframe manipulation
+```
+
+## API Key
+A google developers API Key is necessary for this project. Said key can be optained from google via the following link: (https://developers.google.com/maps/documentation/geocoding/usage-and-billing).</br>
+
+```{r}
+#API Key is required from google for the next section.
+#register_google(key = 'YOUR KEY HERE')
+```
+
+### Retrieve Denver Marijuana Licenses
+```{r message=F}
+
+#retrieve dataset from denvergov.org
+denver_mj_licenses <- read.csv("https://www.denvergov.org/media/gis/DataCatalog/marijuana_active_business_licenses/csv/marijuana_active_business_licenses.csv", header=TRUE, stringsAsFactors = FALSE)
+
+#create factor for license type 
+denver_mj_licenses$License.Type <- factor(denver_mj_licenses$License.Type)
+
+#combine levels and rename for easier reading
+denver_mj_licenses$License.Type <- plyr::revalue(denver_mj_licenses$License.Type, c("Med Marijuana Inf Prod Manuf" = "Infrastructure Production Manufacturing", "Retail Marijuana Inf Prod Mfg" = "Infrastructure Production Manufacturing", "Med Marijuana Test Facility" = "Marijuana Test Facility", "Retail Marijuana Test Facility" = "Marijuana Test Facility", "Med Marijuana Opt Prem Cultiv" = "Marijuana Grow Center", "Retail Marij Opt. Prem. Cultiv" = "Marijuana Grow Center"))
+
+#create factor for zip code
+denver_mj_licenses$Facility.Zip.Code <- factor(denver_mj_licenses$Facility.Zip.Code)
+
+#current license status and expiration date don't appear to be very interesting so they can go
+denver_mj_licenses <- denver_mj_licenses[-c(5:6)]
+
+#convert street address information to one field for geocoding
+num <- paste(word(denver_mj_licenses$Facility.Street.Number))
+dir <- paste(word(denver_mj_licenses$Facility.Pre.Direction))
+street <- paste(word(denver_mj_licenses$Facility.Street.Name))
+type <- paste(word(denver_mj_licenses$Facility.Street.Type))
+denver_mj_licenses$ADDRESS <- paste(num, dir, street, type, ", DENVER, CO", sep=" ")
+
+#remove old address information (except zip code)
+denver_mj_licenses <- denver_mj_licenses[-c(5:10)]
+
+#geocode for lat/long via google 
+for(i in 1:nrow(denver_mj_licenses)) {
+  result <- geocode(denver_mj_licenses$ADDRESS[i], output="latlona", source="google")
+  denver_mj_licenses$LONGITUDE[i] <- as.numeric(result[1])
+  denver_mj_licenses$LATITUDE[i] <- as.numeric(result[2])
+}
+
+#save for posterity
+write.csv(denver_mj_licenses, "mj_licenses_geocoded.csv", row.names=FALSE)
+
+summary(denver_mj_licenses)
+
+#cleanup
+rm(i, num, dir, street, type, result)
+
+#sort by License.Type
+denver_mj_licenses <- within(denver_mj_licenses, License.Type <- factor(License.Type, 
+                                                                        levels=names(sort(table(License.Type), decreasing=TRUE))))
+
+#generate plot to show graphically the number of license types issued
+ggplot(denver_mj_licenses,aes(x=License.Type, fill=License.Type))+
+  geom_bar()+
+  labs(title="Count of License Types issued", x= "License Type")+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+#sort by Facility Zip Code
+denver_mj_licenses <- within(denver_mj_licenses, Facility.Zip.Code <- factor(Facility.Zip.Code, 
+                                                                      levels=names(sort(table(Facility.Zip.Code), decreasing=TRUE))))
+#generate plot to show where licenses are being issued
+ggplot(denver_mj_licenses,aes(x=Facility.Zip.Code, fill=License.Type))+
+  geom_bar()+
+  labs(title="Licenses issued per Zip Code", x="Zip Code")+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+#create a dataframe of the types of licenses issued to each zip code  
+zip_tab <- as.data.frame(table(denver_mj_licenses$Facility.Zip.Code, denver_mj_licenses$License.Type))
+
+#rename for more descriptive tags
+zip_tab <- rename(zip_tab, ZipCode = Var1, License.Type = Var2)
+
+#filter out the 0 frequency occurences
+zip_tab <- filter(zip_tab, zip_tab$Freq > 0)
+
+#generate a plot to show the types of licenses issued to each zip code
+ggplot(zip_tab,aes(x=ZipCode, fill=License.Type))+
+  geom_bar()+
+  labs(title="Types of licenses issued by zip code", x= "Denver Zip Codes")+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+### Clean and save marijuana crime dataset
+```{r message=F}
+
+#retrieve the DPD marijuana crime file from Denver open data portal
+denver_mj_crime <- read.csv("https://www.denvergov.org/media/gis/DataCatalog/crime_marijuana/csv/crime_marijuana.csv", header=TRUE, strip.white = TRUE, stringsAsFactors = FALSE)
+
+#write original file to disk for posterity
+write.csv(denver_mj_crime, "crime_marijuana.csv", row.names=FALSE)
+
+#incident ID to character
+denver_mj_crime$INCIDENT_ID <- as.character(denver_mj_crime$INCIDENT_ID)
+
+#Only one date field is needed
+denver_mj_crime <- data.frame(denver_mj_crime[-c(2:3, 6:7, 10:11)])
+
+#The Report date needs to be in an R compliant format
+day <- paste(word(denver_mj_crime$REPORTDATE, 1, sep="-"))
+month <- paste(word(denver_mj_crime$REPORTDATE, 2, sep="-"))
+month <- plyr::revalue(month, c("JAN"="01", "FEB"="02", "MAR"="03", "APR"="04", "MAY"="05", "JUN"="06", "JUL"="07", "AUG"="08", "SEP"="09", "OCT"="10", "NOV"="11", "DEC"="12"))
+year <- as.integer(paste(word(denver_mj_crime$REPORTDATE, -1, sep="-")))
+year <- paste(year+2000)
+
+#denver_mj_crime$REPORTDATE <- paste(year, month, sep="-")
+denver_mj_crime$REPORTDATE <- paste(year, month, day, sep="-")
+denver_mj_crime$REPORTDATE <- as.Date(denver_mj_crime$REPORTDATE)
+
+#append city and state information to address - necessary for geocoding
+denver_mj_crime$INCIDENT_ADDRESS <- sapply(denver_mj_crime$INCIDENT_ADDRESS , paste, ", Denver, CO", sep="")
+
+#geo_x, geo_y are not needed for this activity
+#denver_mj_crime <- data.frame(denver_mj_crime[-c(4:5)])
+
+#convert fields to factors
+denver_mj_crime$DISTRICT_ID <- factor(denver_mj_crime$DISTRICT_ID)
+denver_mj_crime$PRECINCT_ID <- factor(denver_mj_crime$PRECINCT_ID)
+denver_mj_crime$OFFENSE_CATEGORY_ID <- factor(denver_mj_crime$OFFENSE_CATEGORY_ID)
+denver_mj_crime$MJ_RELATION_TYPE <- factor(denver_mj_crime$MJ_RELATION_TYPE)
+denver_mj_crime$NEIGHBORHOOD_ID <- factor(denver_mj_crime$NEIGHBORHOOD_ID)
+
+write.csv(denver_mj_crime, "mj_crime_geocoded.csv", row.names=FALSE)
+
+
+#geocode to add Longitude/Latitude data
+for(i in 1:nrow(denver_mj_crime)) {
+  result <- geocode(denver_mj_crime$INCIDENT_ADDRESS[i], output="latlona", source="google")
+  denver_mj_crime$LONGITUDE[i] <- as.numeric(result[1])
+  denver_mj_crime$LATITUDE[i] <- as.numeric(result[2])
+}
+
+summary(denver_mj_crime)
+
+#remove intermediate variables and capture the clean file for posterity
+rm(result, i, day, month, year)
+
+#sort by neighborhood
+denver_mj_crime <- within(denver_mj_crime, NEIGHBORHOOD_ID <- factor(NEIGHBORHOOD_ID, 
+                                                                      levels=names(sort(table(NEIGHBORHOOD_ID), decreasing=FALSE))))
+
+#generate plot to show neighborhoods and arrests
+ggplot(denver_mj_crime,aes(x=NEIGHBORHOOD_ID, fill=OFFENSE_CATEGORY_ID))+
+  geom_bar()+
+  coord_flip()+
+  labs(title="License Types issued by zip code", x= "Denver Neighborhoods")+
+  theme_bw()
+
+#sort by crime type
+denver_mj_crime <- within(denver_mj_crime, OFFENSE_CATEGORY_ID <- factor(OFFENSE_CATEGORY_ID, 
+                                                                      levels=names(sort(table(OFFENSE_CATEGORY_ID), decreasing=FALSE))))
+
+#generate plot to show where licenses are being issued
+ggplot(denver_mj_crime,aes(x=OFFENSE_CATEGORY_ID, fill=OFFENSE_CATEGORY_ID))+
+  geom_bar()+
+  coord_flip()+
+  labs(title="Marijuana Related Arrests Made", x= "Arrest Type")+
+  theme_bw()
+```
+
+```{r}
+#apikey <- "YOUR KEY HERE"
+```
+
+```{r}
+library(RgoogleMaps) #interface to google maps 
+
+#generate denver map. 
+denver_map <- GetMap(center = c(lat = mean(denver_mj_licenses$LATITUDE), lon = mean(denver_mj_licenses$LONGITUDE)), destfile="denver_map.png", size = c(640, 640), zoom = 12, sensor = "false", maptype = "roadmap", format = "png", RETURNIMAGE = TRUE, GRAYSCALE = FALSE, NEWMAP = TRUE, SCALE = 1, API_console_key = apikey, verbose = 0)
+
+p1 <- PlotOnStaticMap(denver_map, lat = denver_mj_licenses$LATITUDE, lon = denver_mj_licenses$LONGITUDE, destfile="denver_map.png", GRAYSCALE = FALSE, add = FALSE, FUN = points, NEWMAP = TRUE, TrueProj = TRUE, axes = TRUE, atX = NULL, atY = NULL, col = 3, pch=9)
+legend("topleft", legend = "Location of Marijuana Businesses", col = "green", bg = "white", pch=9)
+
+p2 <- PlotOnStaticMap(denver_map, lat = denver_mj_crime$LATITUDE, lon = denver_mj_crime$LONGITUDE, destfile="denver_map.png", GRAYSCALE = FALSE, add = FALSE, FUN = points, NEWMAP = TRUE, TrueProj = TRUE, axes = TRUE, atX = NULL, atY = NULL, col = 2, pch=12)
+legend("topleft", legend = "Location of Marijuana Arrests", col = "red", bg = "white", pch=12)
+
+```
